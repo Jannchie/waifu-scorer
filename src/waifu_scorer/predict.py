@@ -4,8 +4,9 @@ from typing import Any
 
 import numpy as np
 import torch
-from clip.clip import Compose
 from PIL import ExifTags, Image
+
+from .mlp import MLP
 
 ws_repo = "Eugeoter/waifu-scorer-v3"
 logger = logging.getLogger("WaifuScorer")
@@ -91,6 +92,27 @@ def repo2path(model_repo_and_path: str, *, use_safetensors: bool = True):
     return model_path.as_posix()
 
 
+def load_model(
+    model_path: str | None = None,
+    input_size: int = 768,
+    device: str = "cuda",
+    dtype: None | str = None,
+):
+    model = MLP(input_size=input_size)
+    if model_path:
+        if model_path.endswith(".safetensors"):
+            from safetensors.torch import load_file
+
+            state_dict = load_file(model_path)
+        else:
+            state_dict = torch.load(model_path, map_location=device, weights_only=True)
+        model.load_state_dict(state_dict)
+        model.to(device)
+    if dtype:
+        model = model.to(dtype=dtype)
+    return model
+
+
 class WaifuScorer:
     def __init__(
         self,
@@ -125,7 +147,7 @@ class WaifuScorer:
             model_path,
         )
         self.mlp = load_model(model_path, input_size=768, device=device)
-        self.model2, self.preprocess = load_clip_models("ViT-L/14", device=device)
+        self.model2, self.preprocess = load_clip_models(device=device)
         self.device = self.mlp.device
         self.dtype = self.mlp.dtype
         self.mlp.eval()
@@ -229,34 +251,13 @@ class WaifuScorer:
         return torch.stack(image_or_tensors, dim=0)
 
 
-def load_clip_models(name: str = "ViT-L/14", device: str = "cuda"):
-    import clip
+def load_clip_models(device: str = "cuda"):
+    from transformers import CLIPModel, CLIPProcessor
 
-    model2, preprocess = clip.load(name, device=device)  # RN50x64
-    return model2, preprocess
-
-
-def load_model(
-    model_path: str | None = None,
-    input_size: int = 768,
-    device: str = "cuda",
-    dtype: None | str = None,
-):
-    from .mlp import MLP
-
-    model = MLP(input_size=input_size)
-    if model_path:
-        if model_path.endswith(".safetensors"):
-            from safetensors.torch import load_file
-
-            state_dict = load_file(model_path)
-        else:
-            state_dict = torch.load(model_path, map_location=device, weights_only=True)
-        model.load_state_dict(state_dict)
-        model.to(device)
-    if dtype:
-        model = model.to(dtype=dtype)
-    return model
+    model_name = "openai/clip-vit-large-patch14"
+    model2 = CLIPModel.from_pretrained(model_name).to(device)
+    processor = CLIPProcessor.from_pretrained(model_name, use_fast=False)
+    return model2, processor
 
 
 def normalized(a: torch.Tensor, order: int = 2, dim: int = -1):
@@ -265,18 +266,18 @@ def normalized(a: torch.Tensor, order: int = 2, dim: int = -1):
     return a / l2
 
 
-@torch.no_grad()
 def encode_images(
     images: list[Image.Image],
     model2: torch.nn.Module,
-    preprocess: Compose,
+    preprocess: Any,  # CLIPProcessor
     device: str = "cuda",
 ) -> torch.Tensor:
     if isinstance(images, Image.Image):
         images = [images]
-    image_tensors = [preprocess(img).unsqueeze(0) for img in images]
-    image_batch = torch.cat(image_tensors).to(device)
-    image_features = model2.encode_image(image_batch)
+    inputs = preprocess(images=images, return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    with torch.no_grad():
+        image_features = model2.get_image_features(**inputs)
     return normalized(image_features).cpu().float()
 
 
