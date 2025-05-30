@@ -1,7 +1,7 @@
 [project]
 name = "waifu-scorer"
 version = "0.1.0"
-description = "Add your description here"
+description = "A deep learning-based tool for scoring anime-style (waifu) images, supporting multiple hardware backends and PyTorch environments."
 readme = "README.md"
 authors = [{ name = "Jianqi Pan", email = "jannchie@gmail.com" }]
 requires-python = ">=3.12.6"
@@ -11,22 +11,43 @@ dependencies = [
     "numpy>=2.2.6",
     "pillow>=11.2.1",
     "safetensors>=0.5.3",
-    "torch>=2.6.0",
 ]
+license = { text = "MPL-2.0" }
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+keywords = ["waifu", "scoring", "AI", "deep learning", "image analysis"]
+urls = { "Homepage" = "https://github.com/jannchie/waifu-scorer", "Repository" = "https://github.com/jannchie/waifu-scorer", "Documentation" = "https://github.com/jannchie/waifu-scorer#readme", "Bug Tracker" = "https://github.com/jannchie/waifu-scorer/issues", "Reference" = "https://github.com/Eugeoter/waifuset" }
+
+[project.optional-dependencies]
+cpu = ["torch>=2.5.1"]
+cu121 = ["torch>=2.5.1"]
+cu124 = ["torch>=2.6.0"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [[tool.uv.index]]
-name = "pytorch"
+name = "cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
-[tool.uv.sources]
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
-clip = { git = "https://github.com/openai/CLIP.git" }
+[[tool.uv.index]]
+name = "cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
 
 [tool.ruff]
 line-length = 160
@@ -48,7 +69,7 @@ ignore = [
     "B008",
     "FAST002",
     "INP001",
-    "ANN204"
+    "ANN204",
 ]
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
@@ -56,6 +77,15 @@ ignore = [
 [tool.uv]
 package = true
 upgrade = true
+conflicts = [[{ extra = "cpu" }, { extra = "cu121" }, { extra = "cu124" }]]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/waifu_scorer"]
+
+[tool.uv.sources]
+clip = { git = "https://github.com/openai/CLIP.git" }
+torch = [
+    { index = "cpu", extra = "cpu" },
+    { index = "cu121", extra = "cu121" },
+    { index = "cu124", extra = "cu124" },
+]
