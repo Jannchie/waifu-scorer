@@ -55,14 +55,12 @@ def fill_transparency(image: Image.Image | np.ndarray, bg_color: tuple[int, int,
     return None
 
 
-def download_from_url(url: str, cache_dir: str | None = None):
+def download_from_url(url: str):
     from huggingface_hub import hf_hub_download
 
     split = url.split("/")
     username, repo_id, model_name = split[-3], split[-2], split[-1]
-    # if verbose:
-    # print(f"[download_from_url]: {username}/{repo_id}/{model_name}")
-    return hf_hub_download(f"{username}/{repo_id}", model_name, cache_dir=cache_dir)
+    return hf_hub_download(f"{username}/{repo_id}", model_name)
 
 
 def convert_to_rgb(image: Image.Image | np.ndarray, bg_color: tuple[int, int, int] = (255, 255, 255)):
@@ -117,7 +115,6 @@ class WaifuScorer:
     def __init__(
         self,
         model_path: str | None = None,
-        cache_dir: str | None = None,
         device: str = "cuda",
         *,
         verbose: bool = False,
@@ -141,7 +138,7 @@ class WaifuScorer:
                 "model path not found in local, trying to download from url: %s",
                 model_path,
             )
-            model_path = download_from_url(model_path, cache_dir=cache_dir)
+            model_path = download_from_url(model_path)
 
         self.logger.info(
             "loading pretrained model from `%s`",
@@ -193,9 +190,7 @@ class WaifuScorer:
         if isinstance(inputs, (Image.Image, torch.Tensor, str, Path)):
             inputs = [inputs]
 
-        image_or_tensors = [
-            self.get_image(inp) if isinstance(inp, (str, Path)) else inp for inp in inputs
-        ]
+        image_or_tensors = [self.get_image(inp) if isinstance(inp, (str, Path)) else inp for inp in inputs]
         image_idx = [i for i, img in enumerate(image_or_tensors) if isinstance(img, Image.Image)]
         batch_size = len(image_idx)
         if batch_size > 0:
