@@ -7,14 +7,12 @@ def main():
     parser = argparse.ArgumentParser(description="WaifuScorer: Score images using a pretrained model.")
     parser.add_argument("images", nargs="+", help="Path(s) to image file(s) to score.")
     parser.add_argument("--model", type=str, default=None, help="Path to model file (optional, default: auto download)")
-    parser.add_argument("--emb-cache-dir", type=str, default=None, help="Directory for image embedding cache (optional)")
     parser.add_argument("--device", type=str, default="cuda", help="Device to use (cuda or cpu)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output.")
     args = parser.parse_args()
 
     scorer = WaifuScorer(
         model_path=args.model,
-        emb_cache_dir=args.emb_cache_dir,
         device=args.device,
         verbose=args.verbose,
     )

@@ -117,11 +117,12 @@ class WaifuScorer:
     def __init__(
         self,
         model_path: str | None = None,
-        emb_cache_dir: str | None = None,
         cache_dir: str | None = None,
         device: str = "cuda",
         *,
         verbose: bool = False,
+        clip_model: Any = None,
+        clip_processor: Any = None,
     ):
         self.verbose = verbose
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -147,28 +148,28 @@ class WaifuScorer:
             model_path,
         )
         self.mlp = load_model(model_path, input_size=768, device=device)
-        self.model2, self.preprocess = load_clip_models(device=device)
+        if clip_model is not None and clip_processor is not None:
+            self.model2 = clip_model
+            self.preprocess = clip_processor
+        else:
+            self.model2, self.preprocess = load_clip_models(device=device)
         self.device = self.mlp.device
         self.dtype = self.mlp.dtype
         self.mlp.eval()
-
-        self.emb_cache_dir = emb_cache_dir
 
     @torch.no_grad()
     def __call__(
         self,
         inputs: list[Image.Image | torch.Tensor | Path | str],
-        cache_paths: list[Path] | None = None,
     ) -> list[float]:
-        return self.predict(inputs, cache_paths)
+        return self.predict(inputs)
 
     @torch.no_grad()
     def predict(
         self,
         inputs: list[Image.Image | torch.Tensor | Path | str],
-        cache_paths: list[Path | str] | None = None,
     ) -> list[float]:
-        img_embs = self.encode_inputs(inputs, cache_paths)
+        img_embs = self.encode_inputs(inputs)
         return self.inference(img_embs)
 
     @torch.no_grad()
@@ -182,51 +183,23 @@ class WaifuScorer:
         image = convert_to_rgb(image)
         return rotate_image_straight(image)
 
-    def get_cache_path(self, img_path: str | Path) -> str:
-        return str(Path(self.emb_cache_dir) / (Path(img_path).stem + ".npz"))
-
-    def get_cache(self, cache_path: str | Path) -> torch.Tensor:
-        return load_img_emb_from_disk(
-            cache_path,
-            dtype=self.dtype,
-            is_main_process=True,
-            check_nan=False,
-        )["emb"]
-
-    def encode_inputs(  # noqa: C901, PLR0912
+    def encode_inputs(
         self,
         inputs: list[Image.Image | torch.Tensor | Path | str],
-        cache_paths: list[Path | str] | None = None,
     ) -> torch.Tensor:
         r"""
-        Encode inputs to image embeddings. If embedding cache directory is set, it will save the embeddings to disk.
+        Encode inputs to image embeddings.
         """
         if isinstance(inputs, (Image.Image, torch.Tensor, str, Path)):
             inputs = [inputs]
-        if cache_paths is not None:
-            if isinstance(cache_paths, (str, Path)):
-                cache_paths = [cache_paths]
-            if len(inputs) != len(cache_paths):
-                msg = f"inputs and cache_paths should have the same length, got {len(inputs)} and {len(cache_paths)}"
-                raise ValueError(msg)
 
-        # load image embeddings from cache
-        if self.emb_cache_dir is not None and Path(self.emb_cache_dir).exists():
-            for i, inp in enumerate(inputs):
-                if (cache_paths is not None and Path(cache_path := cache_paths[i]).exists()) or (
-                    isinstance(inp, (str, Path)) and Path(cache_path := self.get_cache_path(inp)).exists()
-                ):
-                    cache = self.get_cache(cache_path)
-                    inputs[i] = cache  # replace input with cached image embedding (Tensor)
-
-        # open uncached images
         image_or_tensors = [
             self.get_image(inp) if isinstance(inp, (str, Path)) else inp for inp in inputs
-        ]  # e.g. [Tensor, Image, Tensor, Image, Image], same length as inputs
-        image_idx = [i for i, img in enumerate(image_or_tensors) if isinstance(img, Image.Image)]  # e.g. [1, 3, 4]
+        ]
+        image_idx = [i for i, img in enumerate(image_or_tensors) if isinstance(img, Image.Image)]
         batch_size = len(image_idx)
         if batch_size > 0:
-            images = [image_or_tensors[i] for i in image_idx]  # e.g. [Image, Image, Image]
+            images = [image_or_tensors[i] for i in image_idx]
             if batch_size == 1:
                 images = images * 2  # batch norm
             img_embs = encode_images(
@@ -234,20 +207,11 @@ class WaifuScorer:
                 self.model2,
                 self.preprocess,
                 device=self.device,
-            )  # e.g. [Tensor, Tensor, Tensor]
+            )
             if batch_size == 1:
                 img_embs = img_embs[:1]
-            # insert image embeddings back to the image_or_tensors list
             for i, idx in enumerate(image_idx):
                 image_or_tensors[idx] = img_embs[i]
-
-        # save image embeddings to cache
-        if self.emb_cache_dir is not None:
-            Path(self.emb_cache_dir).mkdir(parents=True, exist_ok=True)
-            for i, (inp, img_emb) in enumerate(zip(inputs, image_or_tensors, strict=False)):
-                if isinstance(inp, (str, Path)) or cache_paths:
-                    cache_path = cache_paths[i] if cache_paths is not None else self.get_cache_path(inp)
-                    save_img_emb_to_disk(img_emb, cache_path)
         return torch.stack(image_or_tensors, dim=0)
 
 
