@@ -1,0 +1,61 @@
+[project]
+name = "waifu-scorer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Jianqi Pan", email = "jannchie@gmail.com" }]
+requires-python = ">=3.12.6"
+dependencies = [
+    "clip>=0.2.0",
+    "huggingface-hub>=0.32.3",
+    "numpy>=2.2.6",
+    "pillow>=11.2.1",
+    "safetensors>=0.5.3",
+    "torch>=2.6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+clip = { git = "https://github.com/openai/CLIP.git" }
+
+[tool.ruff]
+line-length = 160
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN401",
+    "PGH",
+    "RUF003",
+    "BLE001",
+    "ERA001",
+    "FIX002",
+    "TD002",
+    "TD003",
+    "D",
+    "A004",
+    "ANN201",
+    "B008",
+    "FAST002",
+    "INP001",
+    "ANN204"
+]
+[tool.ruff.lint.per-file-ignores]
+"**/test/**/*" = ["S101"]
+
+[tool.uv]
+package = true
+upgrade = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/waifu_scorer"]
