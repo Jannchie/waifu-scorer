@@ -36,7 +36,6 @@ python -m waifu_scorer path/to/image1.jpg path/to/image2.png
 ### Options
 
 - `--model`: Path to a custom model file
-- `--emb-cache-dir`: Directory for image embedding cache
 - `--device`: Device to use
 - `--verbose`: Enable verbose output
 
