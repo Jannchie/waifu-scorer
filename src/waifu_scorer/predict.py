@@ -13,16 +13,14 @@ logger = logging.getLogger("WaifuScorer")
 
 
 def rotate_image_straight(image: Image.Image) -> Image.Image:
-    exif: Image.Exif = image.getexif()
-    if exif:
+    if exif := image.getexif():
         orientation_tag = {v: k for k, v in ExifTags.TAGS.items()}["Orientation"]
         orientation = exif.get(orientation_tag)
-        degree = {
+        if degree := {
             3: 180,
             6: 270,
             8: 90,
-        }.get(orientation)
-        if degree:
+        }.get(orientation):
             image = image.rotate(degree, expand=True)
     return image
 
@@ -70,9 +68,7 @@ def convert_to_rgb(image: Image.Image | np.ndarray, bg_color: tuple[int, int, in
     image = fill_transparency(image, bg_color)
     if isinstance(image, Image.Image):
         return image.convert("RGB")
-    if isinstance(image, np.ndarray):
-        return image[:, :, :3]
-    return None
+    return image[:, :, :3] if isinstance(image, np.ndarray) else None
 
 
 def repo2path(model_repo_and_path: str, *, use_safetensors: bool = True):
@@ -81,9 +77,9 @@ def repo2path(model_repo_and_path: str, *, use_safetensors: bool = True):
     if p.is_file():
         model_path = p
     elif p.is_dir():
-        model_path = p / ("model" + ext)
+        model_path = p / f"model{ext}"
     elif model_repo_and_path == ws_repo:
-        model_path = Path(model_repo_and_path) / ("model" + ext)
+        model_path = Path(model_repo_and_path) / f"model{ext}"
     else:
         msg = f"Invalid model_repo_and_path: {model_repo_and_path}"
         raise ValueError(msg)
@@ -196,7 +192,7 @@ class WaifuScorer:
         if batch_size > 0:
             images = [image_or_tensors[i] for i in image_idx]
             if batch_size == 1:
-                images = images * 2  # batch norm
+                images *= 2
             img_embs = encode_images(
                 images,
                 self.model2,
