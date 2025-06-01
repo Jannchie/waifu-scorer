@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import torch
 from PIL import ExifTags, Image
+from transformers import CLIPModel, CLIPProcessor
 
 from .mlp import MLP
 
@@ -142,10 +143,10 @@ class WaifuScorer:
         )
         self.mlp = load_model(model_path, input_size=768, device=device)
         if clip_model is not None and clip_processor is not None:
-            self.model2 = clip_model
+            self.clip = clip_model
             self.preprocess = clip_processor
         else:
-            self.model2, self.preprocess = load_clip_models(device=device)
+            self.clip, self.preprocess = load_clip_models(device=device)
         self.device = self.mlp.device
         self.dtype = self.mlp.dtype
         self.mlp.eval()
@@ -195,7 +196,7 @@ class WaifuScorer:
                 images *= 2
             img_embs = encode_images(
                 images,
-                self.model2,
+                self.clip,
                 self.preprocess,
                 device=self.device,
             )
@@ -207,12 +208,10 @@ class WaifuScorer:
 
 
 def load_clip_models(device: str = "cuda"):
-    from transformers import CLIPModel, CLIPProcessor
-
     model_name = "openai/clip-vit-large-patch14"
-    model2 = CLIPModel.from_pretrained(model_name).to(device)
+    clip_model = CLIPModel.from_pretrained(model_name).to(device)
     processor = CLIPProcessor.from_pretrained(model_name, use_fast=False)
-    return model2, processor
+    return clip_model, processor
 
 
 def normalized(a: torch.Tensor, order: int = 2, dim: int = -1):
@@ -223,8 +222,8 @@ def normalized(a: torch.Tensor, order: int = 2, dim: int = -1):
 
 def encode_images(
     images: list[Image.Image],
-    model2: torch.nn.Module,
-    preprocess: Any,  # CLIPProcessor
+    clip_model: CLIPModel,
+    preprocess: CLIPProcessor,
     device: str = "cuda",
 ) -> torch.Tensor:
     if isinstance(images, Image.Image):
@@ -232,5 +231,5 @@ def encode_images(
     inputs = preprocess(images=images, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.no_grad():
-        image_features = model2.get_image_features(**inputs)
+        image_features = clip_model.get_image_features(**inputs)
     return normalized(image_features).cpu().float()
