@@ -1,6 +1,6 @@
 [project]
 name = "waifu-scorer"
-version = "0.2.0"
+version = "0.2.1"
 description = "A deep learning-based tool for scoring anime-style (waifu) images, supporting multiple hardware backends and PyTorch environments."
 readme = "README.md"
 authors = [{ name = "Jianqi Pan", email = "jannchie@gmail.com" }]
