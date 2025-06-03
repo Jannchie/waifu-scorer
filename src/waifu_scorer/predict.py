@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -14,15 +15,16 @@ logger = logging.getLogger("WaifuScorer")
 
 
 def rotate_image_straight(image: Image.Image) -> Image.Image:
-    if exif := image.getexif():
-        orientation_tag = {v: k for k, v in ExifTags.TAGS.items()}["Orientation"]
-        orientation = exif.get(orientation_tag)
-        if degree := {
-            3: 180,
-            6: 270,
-            8: 90,
-        }.get(orientation):
-            image = image.rotate(degree, expand=True)
+    with contextlib.suppress(Exception):
+        if exif := image.getexif():
+            orientation_tag = {v: k for k, v in ExifTags.TAGS.items()}["Orientation"]
+            orientation = exif.get(orientation_tag)
+            if degree := {
+                3: 180,
+                6: 270,
+                8: 90,
+            }.get(orientation):
+                image = image.rotate(degree, expand=True)
     return image
 
 
