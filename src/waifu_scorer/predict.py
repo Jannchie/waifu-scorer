@@ -1,11 +1,13 @@
 import contextlib
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast, overload
 
 import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from PIL import ExifTags, Image
+from safetensors.torch import load_file
 from transformers import CLIPModel, CLIPProcessor
 
 from .mlp import MLP
@@ -19,16 +21,25 @@ def rotate_image_straight(image: Image.Image) -> Image.Image:
         if exif := image.getexif():
             orientation_tag = {v: k for k, v in ExifTags.TAGS.items()}["Orientation"]
             orientation = exif.get(orientation_tag)
-            if degree := {
-                3: 180,
-                6: 270,
-                8: 90,
-            }.get(orientation):
+            if orientation is not None and (
+                degree := {
+                    3: 180,
+                    6: 270,
+                    8: 90,
+                }.get(orientation)
+            ):
                 image = image.rotate(degree, expand=True)
     return image
 
 
-def fill_transparency(image: Image.Image | np.ndarray, bg_color: tuple[int, int, int] = (255, 255, 255)):
+@overload
+def fill_transparency(image: Image.Image, bg_color: tuple[int, int, int] = ...) -> Image.Image: ...
+@overload
+def fill_transparency(image: np.ndarray, bg_color: tuple[int, int, int] = ...) -> np.ndarray: ...
+def fill_transparency(
+    image: Image.Image | np.ndarray,
+    bg_color: tuple[int, int, int] = (255, 255, 255),
+) -> Image.Image | np.ndarray:
     r"""
     Fill the transparent part of an image with a background color.
     Please pay attention that this function doesn't change the image type.
@@ -46,32 +57,34 @@ def fill_transparency(image: Image.Image | np.ndarray, bg_color: tuple[int, int,
             bg.paste(image, mask=alpha)
             return bg
         return image
-    if isinstance(image, np.ndarray):
-        if image.shape[2] == 4:  # noqa: PLR2004
-            alpha = image[:, :, 3]
-            bg = np.full_like(image, (*bg_color, 255))
-            bg[:, :, :3] = image[:, :, :3]
-            return bg
-        return image
-    return None
+    if image.shape[2] == 4:  # noqa: PLR2004
+        bg = np.full_like(image, (*bg_color, 255))
+        bg[:, :, :3] = image[:, :, :3]
+        return bg
+    return image
 
 
-def download_from_url(url: str):
-    from huggingface_hub import hf_hub_download
-
+def download_from_url(url: str) -> str:
     split = url.split("/")
     username, repo_id, model_name = split[-3], split[-2], split[-1]
     return hf_hub_download(f"{username}/{repo_id}", model_name)
 
 
-def convert_to_rgb(image: Image.Image | np.ndarray, bg_color: tuple[int, int, int] = (255, 255, 255)):
+@overload
+def convert_to_rgb(image: Image.Image, bg_color: tuple[int, int, int] = ...) -> Image.Image: ...
+@overload
+def convert_to_rgb(image: np.ndarray, bg_color: tuple[int, int, int] = ...) -> np.ndarray: ...
+def convert_to_rgb(
+    image: Image.Image | np.ndarray,
+    bg_color: tuple[int, int, int] = (255, 255, 255),
+) -> Image.Image | np.ndarray:
     r"""
     Convert an image to RGB mode and fix transparency conversion if needed.
     """
     image = fill_transparency(image, bg_color)
     if isinstance(image, Image.Image):
         return image.convert("RGB")
-    return image[:, :, :3] if isinstance(image, np.ndarray) else None
+    return image[:, :, :3]
 
 
 def repo2path(model_repo_and_path: str, *, use_safetensors: bool = True):
@@ -93,20 +106,16 @@ def load_model(
     model_path: str | None = None,
     input_size: int = 768,
     device: str = "cuda",
-    dtype: None | str = None,
-):
+    dtype: torch.dtype | str | None = None,
+) -> MLP:
     model = MLP(input_size=input_size)
     if model_path:
-        if model_path.endswith(".safetensors"):
-            from safetensors.torch import load_file
-
-            state_dict = load_file(model_path)
-        else:
-            state_dict = torch.load(model_path, map_location=device, weights_only=True)
+        state_dict = load_file(model_path) if model_path.endswith(".safetensors") else torch.load(model_path, map_location=device, weights_only=True)
         model.load_state_dict(state_dict)
         model.to(device)
-    if dtype:
-        model = model.to(dtype=dtype)
+    if dtype is not None:
+        torch_dtype = getattr(torch, dtype) if isinstance(dtype, str) else dtype
+        model = model.to(dtype=torch_dtype)
     return model
 
 
@@ -189,13 +198,13 @@ class WaifuScorer:
         if isinstance(inputs, (Image.Image, torch.Tensor, str, Path)):
             inputs = [inputs]
 
-        image_or_tensors = [self.get_image(inp) if isinstance(inp, (str, Path)) else inp for inp in inputs]
+        image_or_tensors: list[Image.Image | torch.Tensor] = [self.get_image(inp) if isinstance(inp, (str, Path)) else inp for inp in inputs]
         image_idx = [i for i, img in enumerate(image_or_tensors) if isinstance(img, Image.Image)]
         batch_size = len(image_idx)
         if batch_size > 0:
-            images = [image_or_tensors[i] for i in image_idx]
+            images: list[Image.Image] = [img for img in image_or_tensors if isinstance(img, Image.Image)]
             if batch_size == 1:
-                images *= 2
+                images = images * 2
             img_embs = encode_images(
                 images,
                 self.clip,
@@ -206,13 +215,21 @@ class WaifuScorer:
                 img_embs = img_embs[:1]
             for i, idx in enumerate(image_idx):
                 image_or_tensors[idx] = img_embs[i]
-        return torch.stack(image_or_tensors, dim=0)
+        tensors: list[torch.Tensor] = [t for t in image_or_tensors if isinstance(t, torch.Tensor)]
+        return torch.stack(tensors, dim=0)
 
 
-def load_clip_models(device: str = "cuda"):
+def load_clip_models(device: str | torch.device = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
     model_name = "openai/clip-vit-large-patch14"
-    clip_model = CLIPModel.from_pretrained(model_name).to(device)
+    clip_model = CLIPModel.from_pretrained(model_name)
+    if not isinstance(clip_model, CLIPModel):
+        msg = f"Expected CLIPModel, got {type(clip_model).__name__}"
+        raise TypeError(msg)
+    clip_model = cast("CLIPModel", clip_model.to(device))  # type: ignore[arg-type]
     processor = CLIPProcessor.from_pretrained(model_name, use_fast=False)
+    if not isinstance(processor, CLIPProcessor):
+        msg = f"Expected CLIPProcessor, got {type(processor).__name__}"
+        raise TypeError(msg)
     return clip_model, processor
 
 
@@ -226,12 +243,16 @@ def encode_images(
     images: list[Image.Image],
     clip_model: CLIPModel,
     preprocess: CLIPProcessor,
-    device: str = "cuda",
+    device: str | torch.device = "cuda",
 ) -> torch.Tensor:
     if isinstance(images, Image.Image):
         images = [images]
-    inputs = preprocess(images=images, return_tensors="pt")
+    inputs = preprocess(images=images, return_tensors="pt")  # type: ignore[call-arg]
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.no_grad():
-        image_features = clip_model.get_image_features(**inputs)
+        features_out = clip_model.get_image_features(**inputs)
+    # transformers 5.x changed `CLIPModel.get_image_features` to return a
+    # `BaseModelOutputWithPooling` instead of the bare projected-pooled tensor
+    # that 4.x returned; unwrap so downstream tensor ops keep working.
+    image_features = cast("torch.Tensor", getattr(features_out, "pooler_output", features_out))
     return normalized(image_features).cpu().float()

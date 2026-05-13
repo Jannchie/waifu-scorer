@@ -1,6 +1,6 @@
 [project]
 name = "waifu-scorer"
-version = "0.2.1"
+version = "0.2.2"
 description = "A deep learning-based tool for scoring anime-style (waifu) images, supporting multiple hardware backends and PyTorch environments."
 readme = "README.md"
 authors = [{ name = "Jianqi Pan", email = "jannchie@gmail.com" }]
@@ -11,6 +11,7 @@ dependencies = [
     "numpy>=2.2.6",
     "pillow>=11.2.1",
     "safetensors>=0.5.3",
+    "torch>=2.4",
     "transformers>=4.52.4",
 ]
 license = { text = "MPL-2.0" }
@@ -26,29 +27,9 @@ classifiers = [
 keywords = ["waifu", "scoring", "AI", "deep learning", "image analysis"]
 urls = { "Homepage" = "https://github.com/jannchie/waifu-scorer", "Repository" = "https://github.com/jannchie/waifu-scorer", "Documentation" = "https://github.com/jannchie/waifu-scorer#readme", "Bug Tracker" = "https://github.com/jannchie/waifu-scorer/issues", "Reference" = "https://github.com/Eugeoter/waifuset" }
 
-[project.optional-dependencies]
-cpu = ["torch>=2.5.1"]
-cu121 = ["torch>=2.5.1"]
-cu124 = ["torch>=2.6.0"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[[tool.uv.index]]
-name = "cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "cu124"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
-
-[[tool.uv.index]]
-name = "cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
 
 [tool.ruff]
 line-length = 160
@@ -78,15 +59,17 @@ ignore = [
 [tool.uv]
 package = true
 upgrade = true
-conflicts = [[{ extra = "cpu" }, { extra = "cu121" }, { extra = "cu124" }]]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/waifu_scorer"]
 
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.uv.sources]
 clip = { git = "https://github.com/openai/CLIP.git" }
 torch = [
-    { index = "cpu", extra = "cpu" },
-    { index = "cu121", extra = "cu121" },
-    { index = "cu124", extra = "cu124" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
 ]

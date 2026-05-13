@@ -4,12 +4,40 @@ A deep learning-based tool for scoring anime-style images, supporting multiple h
 
 ## Installation
 
-You need Python 3.12+ and pip. It is recommended to use a virtual environment.
+You need Python 3.10+ and pip. It is recommended to use a virtual environment.
+
+### 1. Install PyTorch for your platform
+
+Pick the right command for your OS / hardware from the official selector:
+<https://pytorch.org/get-started/locally/>
+
+A few common examples:
 
 ```bash
-pip install .[cpu]      # For CPU only
-pip install .[cu121]    # For CUDA 12.1
-pip install .[cu124]    # For CUDA 12.4
+# CPU only (any OS)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# NVIDIA GPU (pick the CUDA version that matches your driver)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# AMD GPU on Linux (ROCm)
+pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+
+# macOS (Apple Silicon, MPS backend) — just use the default PyPI wheel
+pip install torch
+```
+
+### 2. Install waifu-scorer
+
+```bash
+pip install waifu-scorer
+```
+
+If you are using [uv](https://docs.astral.sh/uv/), you can let it pick a torch backend automatically:
+
+```bash
+uv pip install --torch-backend=auto waifu-scorer
 ```
 
 ## Usage in Python
