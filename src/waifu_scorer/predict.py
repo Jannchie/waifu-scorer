@@ -12,8 +12,54 @@ from transformers import CLIPModel, CLIPProcessor
 
 from .mlp import MLP
 
-ws_repo = "Eugeoter/waifu-scorer-v3"
+DEFAULT_REPO = "Eugeoter/waifu-scorer-v3"
+DEFAULT_FILENAME = "model.safetensors"
 logger = logging.getLogger("WaifuScorer")
+
+
+def resolve_device(device: str | torch.device | None = None) -> torch.device:
+    """Return a usable torch.device, falling back to mps/cpu when cuda is unavailable."""
+    if device is not None:
+        requested = torch.device(device)
+        if requested.type == "cuda" and not torch.cuda.is_available():
+            logger.info("cuda not available, falling back to %s", _auto_device())
+            return _auto_device()
+        if requested.type == "mps" and not torch.backends.mps.is_available():
+            logger.info("mps not available, falling back to cpu")
+            return torch.device("cpu")
+        return requested
+    return _auto_device()
+
+
+def _auto_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def resolve_model_path(model_path: str | None) -> str:
+    """Resolve a model identifier to a local file path.
+
+    Accepts: None (default repo), local file, local directory (looks for model.safetensors),
+    or a HuggingFace identifier in the form "user/repo" or "user/repo/filename".
+    """
+    if model_path is None:
+        return hf_hub_download(repo_id=DEFAULT_REPO, filename=DEFAULT_FILENAME)
+    p = Path(model_path)
+    if p.is_file():
+        return p.as_posix()
+    if p.is_dir():
+        return (p / DEFAULT_FILENAME).as_posix()
+    user_repo, _, filename = model_path.partition("/")
+    if "/" in filename:
+        repo_name, _, filename = filename.partition("/")
+        return hf_hub_download(repo_id=f"{user_repo}/{repo_name}", filename=filename)
+    if user_repo and filename:
+        return hf_hub_download(repo_id=model_path, filename=DEFAULT_FILENAME)
+    msg = f"Invalid model_path: {model_path}"
+    raise ValueError(msg)
 
 
 def rotate_image_straight(image: Image.Image) -> Image.Image:
@@ -64,12 +110,6 @@ def fill_transparency(
     return image
 
 
-def download_from_url(url: str) -> str:
-    split = url.split("/")
-    username, repo_id, model_name = split[-3], split[-2], split[-1]
-    return hf_hub_download(f"{username}/{repo_id}", model_name)
-
-
 @overload
 def convert_to_rgb(image: Image.Image, bg_color: tuple[int, int, int] = ...) -> Image.Image: ...
 @overload
@@ -87,32 +127,16 @@ def convert_to_rgb(
     return image[:, :, :3]
 
 
-def repo2path(model_repo_and_path: str, *, use_safetensors: bool = True):
-    ext = ".safetensors" if use_safetensors else ".pth"
-    p = Path(model_repo_and_path)
-    if p.is_file():
-        model_path = p
-    elif p.is_dir():
-        model_path = p / f"model{ext}"
-    elif model_repo_and_path == ws_repo:
-        model_path = Path(model_repo_and_path) / f"model{ext}"
-    else:
-        msg = f"Invalid model_repo_and_path: {model_repo_and_path}"
-        raise ValueError(msg)
-    return model_path.as_posix()
-
-
 def load_model(
-    model_path: str | None = None,
+    model_path: str,
     input_size: int = 768,
-    device: str = "cuda",
+    device: str | torch.device = "cpu",
     dtype: torch.dtype | str | None = None,
 ) -> MLP:
     model = MLP(input_size=input_size)
-    if model_path:
-        state_dict = load_file(model_path) if model_path.endswith(".safetensors") else torch.load(model_path, map_location=device, weights_only=True)
-        model.load_state_dict(state_dict)
-        model.to(device)
+    state_dict = load_file(model_path) if model_path.endswith(".safetensors") else torch.load(model_path, map_location=device, weights_only=True)
+    model.load_state_dict(state_dict)
+    model.to(device)
     if dtype is not None:
         torch_dtype = getattr(torch, dtype) if isinstance(dtype, str) else dtype
         model = model.to(dtype=torch_dtype)
@@ -123,7 +147,7 @@ class WaifuScorer:
     def __init__(
         self,
         model_path: str | None = None,
-        device: str = "cuda",
+        device: str | torch.device | None = None,
         *,
         verbose: bool = False,
         clip_model: Any = None,
@@ -131,35 +155,17 @@ class WaifuScorer:
     ):
         self.verbose = verbose
         self.logger = logging.getLogger(self.__class__.__name__)
-        if model_path is None:  # auto
-            model_path = repo2path(
-                ws_repo,
-                use_safetensors=True,
-            )
-            if self.verbose:
-                self.logger.info(
-                    "model path not set, switch to default: `%s`",
-                    model_path,
-                )
-        if not Path(model_path).is_file():
-            self.logger.info(
-                "model path not found in local, trying to download from url: %s",
-                model_path,
-            )
-            model_path = download_from_url(model_path)
+        self.device = resolve_device(device)
+        self.dtype = torch.float32
 
-        self.logger.info(
-            "loading pretrained model from `%s`",
-            model_path,
-        )
-        self.mlp = load_model(model_path, input_size=768, device=device)
+        resolved_path = resolve_model_path(model_path)
+        self.logger.info("loading pretrained model from `%s`", resolved_path)
+        self.mlp = load_model(resolved_path, input_size=768, device=self.device)
         if clip_model is not None and clip_processor is not None:
             self.clip = clip_model
             self.preprocess = clip_processor
         else:
-            self.clip, self.preprocess = load_clip_models(device=device)
-        self.device = self.mlp.device
-        self.dtype = self.mlp.dtype
+            self.clip, self.preprocess = load_clip_models(device=self.device)
         self.mlp.eval()
 
     @torch.no_grad()
@@ -219,7 +225,7 @@ class WaifuScorer:
         return torch.stack(tensors, dim=0)
 
 
-def load_clip_models(device: str | torch.device = "cuda") -> tuple[CLIPModel, CLIPProcessor]:
+def load_clip_models(device: str | torch.device = "cpu") -> tuple[CLIPModel, CLIPProcessor]:
     model_name = "openai/clip-vit-large-patch14"
     clip_model = CLIPModel.from_pretrained(model_name)
     if not isinstance(clip_model, CLIPModel):
@@ -243,7 +249,7 @@ def encode_images(
     images: list[Image.Image],
     clip_model: CLIPModel,
     preprocess: CLIPProcessor,
-    device: str | torch.device = "cuda",
+    device: str | torch.device = "cpu",
 ) -> torch.Tensor:
     if isinstance(images, Image.Image):
         images = [images]

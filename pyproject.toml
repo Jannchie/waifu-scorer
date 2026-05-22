@@ -55,6 +55,7 @@ ignore = [
 ]
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
+"**/tests/**/*" = ["S101"]
 
 [tool.uv]
 package = true
@@ -62,6 +63,12 @@ upgrade = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/waifu_scorer"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.14",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

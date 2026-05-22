@@ -1,4 +1,3 @@
-import torch
 from torch import Tensor, nn
 
 
@@ -29,13 +28,6 @@ class MLP(nn.Module):
             nn.ReLU(),
             nn.Linear(32, 1),
         )
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        else:
-            self.device = torch.device("cpu")
-        self.dtype = torch.float32
 
     def forward(self, x: Tensor) -> Tensor:
         return self.layers(x)
